@@ -1,0 +1,35 @@
+;; Copyright (c) 2020 DINUM, Bastien Guerry <bastien.guerry@data.gouv.fr>
+;; SPDX-License-Identifier: EPL-2.0
+;; License-Filename: LICENSE
+
+{:version     "0.1.0"
+ :description "Generate dependencies data for https://code.etalab.gouv.fr"
+ :url         "https://github.com/etalab/codegouvfr-deps"
+ :license     {:name "Eclipse Public License - v 2.0"
+               :url  "http://www.eclipse.org/legal/epl-v20.html"}
+
+ :deps {borkdude/babashka    {:mvn/version "0.1.3"}
+        cheshire             {:mvn/version "5.10.0"}
+        org.clojure/clojure  {:mvn/version "1.10.1"}
+        org.clojure/data.csv {:mvn/version "1.0.0"}}
+
+ :aliases {:native-image
+           {:main-opts ["-m clj.native-image core"
+                        ;; "--verbose"
+                        "--no-fallback"
+                        "--report-unsupported-elements-at-runtime"
+                        "--initialize-at-build-time"
+                        ;; Allow https
+                        "-H:EnableURLProtocols=http,https"
+                        ;; "-H:+ReportExceptionStackTraces"
+                        ;; "-H:+TraceClassInitialization"
+                        ;; Optional native image name override
+                        "-H:Name=codegouvfr-deps"]
+            :jvm-opts  ["-Dclojure.compiler.direct-linking=true"]
+            :extra-deps
+            {clj.native-image
+             {:git/url "https://github.com/taylorwood/clj.native-image.git"
+              :sha     "7708e7fd4572459c81f6a6b8e44c96f41cdd92d4"}}}
+           :jar {:extra-deps {seancorfield/depstar {:mvn/version "RELEASE"}}
+                 :main-opts  ["-m" "hf.depstar.uberjar" "codegouvfr-deps.jar"
+                              "-C" "-m" "core"]}}}
