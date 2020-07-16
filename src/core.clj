@@ -131,15 +131,18 @@
     (when deps {:clojars (into [] deps)})))
 
 (defn- get-pomxml-deps [body]
-  (let [deps0 (filter #(= (name (:tag %)) "dependencies")
-                      (->> (:content (xml/parse-str body))
-                           (remove string?)))
-        deps  (remove #(re-find #"^org\.clojure" %)
-                      (flatten
-                       (map #(:content (second (:content %)))
-                            (remove string? (:content (first deps0))))))]
-    (when (seq deps)
-      {:maven (into [] deps)})))
+  (when-let [deps0 (filter #(= (name (:tag %)) "dependencies")
+                           (->> (:content (xml/parse-str body))
+                                (remove string?)))]
+    (let [deps (->> deps0 first :content
+                    (remove string?)
+                    (map #(let [[g a] (remove string? (:content %))]
+                            (str (first (:content g)) "/"
+                                 (first (:content a)))))
+                    (remove nil?)
+                    flatten)]
+      (when (seq deps)
+        {:maven (into [] deps)}))))
 
 (defn- add-dependencies
   "Take a repository map and return the map completed with dependencies."
