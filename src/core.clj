@@ -45,6 +45,56 @@
                                   (.getMessage e))))]
      (json/parse-string (:body res) true))))
 
+(when-let [deps (not-empty (filter not-empty (map :deps @repos)))]
+  (def deps
+    (atom
+     (reduce #(merge-with into %1 %2) deps))))
+
+;; Validate modules
+
+(defn- get-valid-npm [module]
+  (let [registry-url-fmt "https://registry.npmjs.org/-/v1/search?text=%s&size=1"]
+    (when-let [res (try (curl/get (format registry-url-fmt module))
+                        (catch Exception _ nil))]
+      (let [{:keys [description links]}
+            (-> (:body res)
+                (json/parse-string true)
+                :objects first :package)]
+        {:name module :description description :link (:npm links)}))))
+
+(defn- get-valid-pypi [module]
+  (let [registry-url-fmt "https://pypi.org/pypi/%s/json"]
+    (when-let [res (try (curl/get (format registry-url-fmt module))
+                        (catch Exception _ nil))]
+      (let [{:keys [info]}
+            (-> (:body res)
+                (json/parse-string true))]
+        {:name        module
+         :description (:summary info)
+         :link        (:package_url info)}))))
+
+;; FIXME: Where to get a proper maven artifact description?
+(defn- get-valid-maven [module]
+  (let [[groupId artifactId] (drop 1 (re-find #"([^/]+)/([^/]+)" module))
+        registry-url-fmt
+        "https://search.maven.org/solrsearch/select?q=g:%%22%s%%22+AND+a:%%22%s%%22&core=gav&rows=1&wt=json"
+        link-fmt
+        "https://search.maven.org/classic/#search|ga|1|g:%%22%s%%22%%20AND%%20a:%%22%s%%22"]
+    (when-let [res (try (curl/get (format registry-url-fmt groupId artifactId))
+                        (catch Exception _ nil))]
+      (let [tags (-> (json/parse-string (:body res) true)
+                     :response
+                     :docs
+                     first
+                     :tags)]
+        {:name        module
+         :description (s/join ", " (take 6 tags))
+         :link        (format link-fmt groupId artifactId)}))))
+
+;; (defn- get-valid-bundler)
+;; (defn- get-valid-composer)
+;; (defn- get-valid-clojar)
+
 (defn add-reuse
   "Return a hash-map with the repo and the number of reuse."
   [{:keys [repertoire_url plateforme reuse_updated] :as repo}]
