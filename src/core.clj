@@ -19,7 +19,7 @@
    "Vue"        ["package.json"]
    "JavaScript" ["package.json"]
    "TypeScript" ["package.json"]
-   "Python"     ["setup.py"]
+   "Python"     ["setup.py" "requirements.txt"]
    "Ruby"       ["Gemfile"]
    "Java"       ["pom.xml"]
    "Clojure"    ["pom.xml" "deps.edn" "project.clj"]})
@@ -93,6 +93,12 @@
         (when (seq deps)
           {:pypi (into [] (map s/trim deps))})))))
 
+(defn- get-requirements-deps [body]
+  (when (not-empty body)
+    (let [deps (map last (re-seq #"(?m)^([^=]+)==.+" body))]
+      (when (seq deps)
+        {:pypi (into [] (map s/trim deps))}))))
+
 (defn- get-gemfile-deps [body]
   (let [deps (re-seq #"(?ms)^gem '([^']+)'" body)]
     (when (seq deps)
@@ -150,6 +156,8 @@
                        (get-composerjson-deps body)
                        "setup.py"
                        (get-setuppy-deps body)
+                       "requirements.txt"
+                       (get-requirements-deps body)
                        "Gemfile"
                        (get-gemfile-deps body)
                        "deps.edn"
