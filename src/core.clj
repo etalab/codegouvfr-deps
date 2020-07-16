@@ -68,7 +68,7 @@
 (defn- get-gemfile-deps [body]
   (let [deps (re-seq #"(?ms)^gem '([^']+)'" body)]
     (when (seq deps)
-      {:gem (into [] (map last deps))})))
+      {:bundler (into [] (map last deps))})))
 
 (defn- get-depsedn-deps [body]
   (let [deps (->> (map first (:deps (edn/read-string body)))
