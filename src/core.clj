@@ -135,7 +135,9 @@
 
 (defn- repos-deps []
   (let [res (atom [])]
-    (doseq [r (filter #(not (= (:langage %) "")) (get-repos))]
+    (doseq [r (->> (get-repos)
+                   (filter #(not (= (:langage %) "")))
+                   (filter #(not (= (:est_archive %) true))))]
       (let [deps (repo-check-dep-files r)]
         (when (seq deps)
           (swap! res conj deps))))
