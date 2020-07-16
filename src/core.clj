@@ -39,12 +39,11 @@
 
 (def repos
   (atom
-   (take 5
-         (when-let [res (try (curl/get repos-url)
-                             (catch Exception e
-                               (println "ERROR: Cannot reach repos-url\n"
-                                        (.getMessage e))))]
-           (json/parse-string (:body res) true)))))
+   (when-let [res (try (curl/get repos-url)
+                       (catch Exception e
+                         (println "ERROR: Cannot reach repos-url\n"
+                                  (.getMessage e))))]
+     (json/parse-string (:body res) true))))
 
 (defn add-reuse
   "Return a hash-map with the repo and the number of reuse."
