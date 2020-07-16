@@ -5,7 +5,6 @@
 (ns core
   (:require  [cheshire.core :as json]
              [babashka.curl :as curl]
-             [clojure.data.csv :as csv]
              [clojure.data.xml :as xml]
              [clojure.string :as s]
              [clojure.edn :as edn])
@@ -24,27 +23,18 @@
    "Clojure"    ["pom.xml" "deps.edn" "project.clj"]})
 
 (defonce repos-url
-  "https://raw.githubusercontent.com/etalab/data-codes-sources-fr/master/data/repertoires/csv/all.csv")
-
-;; Utility functions
-
-(defn- rows->maps [csv]
-  (let [headers (map keyword (first csv))
-        rows    (rest csv)]
-    (map #(zipmap headers %) rows)))
-
-(defn- csv-url-to-map [url]
-  (rows->maps (csv/read-csv (:body (curl/get url)))))
+  "https://raw.githubusercontent.com/etalab/data-codes-sources-fr/master/data/repertoires/json/all.json")
 
 ;; Core functions
 
 (defn- get-repos
   "Return a hash-map with all repositories from `repos-url`."
   []
-  (try (csv-url-to-map repos-url)
-       (catch Exception e
-         (println "ERROR: Cannot reach repos-url\n"
-                  (.getMessage e)))))
+  (when-let [res (try (curl/get repos-url)
+                      (catch Exception e
+                        (println "ERROR: Cannot reach repos-url\n"
+                                 (.getMessage e))))]
+    (json/parse-string (:body res) true)))
 
 (defn- get-packagejson-deps [body]
   (let [parsed (json/parse-string body)
