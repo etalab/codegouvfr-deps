@@ -9,7 +9,8 @@
              [clojure.string :as s]
              [clojure.edn :as edn]
              [hickory.core :as h]
-             [hickory.select :as hs])
+             [hickory.select :as hs]
+             [java-time :as t])
   (:gen-class))
 
 ;; Setup definitions
@@ -27,27 +28,38 @@
 (defonce repos-url
   "https://raw.githubusercontent.com/etalab/data-codes-sources-fr/master/data/repertoires/json/all.json")
 
+;; Utility functions
+
+(defn- less-than-a-week-ago [date-str]
+  (let [one-week-ago (t/minus (t/instant) (t/days 7))]
+    (= (t/min (t/instant date-str) one-week-ago)
+       one-week-ago)))
+
 ;; Core functions
 
-(defonce repos
+(def repos
   (atom
-   (when-let [res (try (curl/get repos-url)
-                       (catch Exception e
-                         (println "ERROR: Cannot reach repos-url\n"
-                                  (.getMessage e))))]
-     (json/parse-string (:body res) true))))
+   (take 5
+         (when-let [res (try (curl/get repos-url)
+                             (catch Exception e
+                               (println "ERROR: Cannot reach repos-url\n"
+                                        (.getMessage e))))]
+           (json/parse-string (:body res) true)))))
 
-(defn get-reused-by
+(defn add-reuse
   "Return a hash-map with the repo and the number of reuse."
-  [repo]
-  ;; Only check available information on github.com
-  (if-not (re-find #"github\.com" repo)
-    {:repertoire_url repo :reused "N/A"}
+  [{:keys [repertoire_url plateforme reuse_updated] :as repo}]
+  (if (or (not (= "GitHub" plateforme))
+          (not (re-find #"^https?://github\.com" repertoire_url))
+          (when-let [d (not-empty reuse_updated)]
+            (less-than-a-week-ago d)))
+    repo
+    ;; Only check available information on github.com
     (when-let [repo-github-html
-               (try (curl/get (str repo "/network/dependents"))
+               (try (curl/get (str repertoire_url "/network/dependents"))
                     (catch Exception e
                       (println "Cannot get"
-                               (str repo "/network/dependents\n")
+                               (str repertoire_url "/network/dependents\n")
                                (.getMessage e))))]
       (let [btn-links (-> repo-github-html
                           :body
@@ -60,19 +72,16 @@
             nb-pkgs   (or (try (re-find #"\d+" (last (:content (nth btn-links 2))))
                                (catch Exception _ "0"))
                           0)]
-        {:repertoire_url repo
-         :reused         (+ (Integer/parseInt nb-reps) (Integer/parseInt nb-pkgs))}))))
+        (assoc
+         repo
+         :reuse_updated (str (t/instant))
+         :reuse         (+ (Integer/parseInt nb-reps) (Integer/parseInt nb-pkgs)))))))
 
-(defn reuse
-  "Update repos.json with reused-by info."
+(defn add-reuse-info
+  "Update @repos with GitHub reused-by information."
   []
-  (spit "reuse.json"
-        (json/generate-string
-         (->> @repos
-              (map :repertoire_url)
-              (filter #(not (re-find #"^http://github\.com" %)))
-              (map get-reused-by))))
-  (println "Added reuse.son"))
+  (reset! repos (doall (map add-reuse @repos)))
+  (println "Added reuse information"))
 
 (defn- get-packagejson-deps [body]
   (let [parsed (json/parse-string body)
@@ -133,52 +142,58 @@
     (when (seq deps)
       {:maven (into [] deps)})))
 
-(defn- repo-check-dep-files
+(defn- add-dependencies
   "Take a repository map and return the map completed with dependencies."
   [{:keys
-    [repertoire_url organisation_nom
-     nom plateforme langage] :as repo}]
-  (let [baseurl    (re-find #"https?://[^/]+" repertoire_url)
-        fmt-str    (if (= plateforme "GitHub")
-                     "https://raw.githubusercontent.com/%s/%s/master/%s"
-                     (str baseurl "/%s/%s/-/raw/master/%s"))
-        dep-fnames (get dep-files langage)
-        deps       (atom {})]
-    (doseq [f dep-fnames]
-      (when-let [res (try (curl/get (format fmt-str organisation_nom nom f))
-                          (catch Exception e (println (.getMessage e))))]
-        (when (= 200 (:status res))
-          (let [body (:body res)
-                reqs (condp = f
-                       "package.json"
-                       (get-packagejson-deps body)
-                       "composer.json"
-                       (get-composerjson-deps body)
-                       "setup.py"
-                       (get-setuppy-deps body)
-                       "requirements.txt"
-                       (get-requirements-deps body)
-                       "Gemfile"
-                       (get-gemfile-deps body)
-                       "deps.edn"
-                       (get-depsedn-deps body)
-                       "project.clj"
-                       (get-projectclj-deps body)
-                       "pom.xml"
-                       (get-pomxml-deps body))]
-            (swap! deps #(merge-with into % reqs))))))
-    (assoc repo :deps @deps)))
+    [repertoire_url organisation_nom est_archive
+     nom plateforme langage deps_updated] :as repo}]
+  (if (or (= langage "")
+          (= est_archive true)
+          (when-let [d (not-empty deps_updated)]
+            (less-than-a-week-ago d)))
+    repo
+    (let [baseurl    (re-find #"https?://[^/]+" repertoire_url)
+          fmt-str    (if (= plateforme "GitHub")
+                       "https://raw.githubusercontent.com/%s/%s/master/%s"
+                       (str baseurl "/%s/%s/-/raw/master/%s"))
+          dep-fnames (get dep-files langage)
+          deps       (atom {})]
+      (doseq [f dep-fnames]
+        (when-let [res (try (curl/get (format fmt-str organisation_nom nom f))
+                            (catch Exception e (println (.getMessage e))))]
+          (when (= 200 (:status res))
+            (let [body (:body res)
+                  reqs (condp = f
+                         "package.json"
+                         (get-packagejson-deps body)
+                         "composer.json"
+                         (get-composerjson-deps body)
+                         "setup.py"
+                         (get-setuppy-deps body)
+                         "requirements.txt"
+                         (get-requirements-deps body)
+                         "Gemfile"
+                         (get-gemfile-deps body)
+                         "deps.edn"
+                         (get-depsedn-deps body)
+                         "project.clj"
+                         (get-projectclj-deps body)
+                         "pom.xml"
+                         (get-pomxml-deps body))]
+              (swap! deps #(merge-with into % reqs))))))
+      (assoc repo :deps @deps :deps_updated (str (t/instant))))))
 
-(defn- repos-deps []
+(defn- add-repos-deps
+  "Update @repos with dependencies information."
+  []
   (let [res (atom [])]
-    (doseq [r (->> @repos
-                   (filter #(not (= (:langage %) "")))
-                   (filter #(not (= (:est_archive %) true))))]
-      (let [deps (repo-check-dep-files r)]
-        (when (seq deps)
-          (swap! res conj deps))))
-    (spit "deps.json" (json/generate-string @res))))
+    (doseq [r @repos]
+      (let [deps (add-dependencies r)]
+        (swap! res conj deps)))
+    (reset! repos @res))
+  (println "Added dependencies information"))
 
 (defn -main []
-  (repos-deps)
-  (reuse))
+  (add-repos-deps)
+  (add-reuse-info)
+  (spit "deps.json" (json/generate-string @repos)))
