@@ -91,9 +91,30 @@
          :description (s/join ", " (take 6 tags))
          :link        (format link-fmt groupId artifactId)}))))
 
-;; (defn- get-valid-bundler)
-;; (defn- get-valid-composer)
-;; (defn- get-valid-clojar)
+(defn- get-valid-clojars [module]
+  (let [registry-url-fmt "https://clojars.org/api/artifacts/%s"]
+    (when-let [res (try (curl/get (format registry-url-fmt module))
+                        (catch Exception _ nil))]
+      {:name        module
+       :description (:description (json/parse-string (:body res) true))
+       :link        (str "https://clojars.org/" module)})))
+
+(defn- get-valid-bundler [module]
+  (let [registry-url-fmt "https://rubygems.org/api/v1/gems/%s.json"]
+    (when-let [res (try (curl/get (format registry-url-fmt module))
+                        (catch Exception _ nil))]
+      (let [{:keys [info project_uri]} (json/parse-string (:body res) true)]
+        {:name        module
+         :description info
+         :link        project_uri}))))
+
+(defn- get-valid-composer [module]
+  (let [registry-url-fmt "https://packagist.org/packages/%s"]
+    (when-let [res (try (curl/get (str (format registry-url-fmt module) ".json"))
+                        (catch Exception _ nil))]
+      {:name        module
+       :description (:description (:package (json/parse-string (:body res) true)))
+       :link        (format registry-url-fmt module)})))
 
 (defn add-reuse
   "Return a hash-map with the repo and the number of reuse."
