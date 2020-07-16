@@ -7,7 +7,9 @@
              [babashka.curl :as curl]
              [clojure.data.xml :as xml]
              [clojure.string :as s]
-             [clojure.edn :as edn])
+             [clojure.edn :as edn]
+             [hickory.core :as h]
+             [hickory.select :as hs])
   (:gen-class))
 
 ;; Setup definitions
@@ -27,14 +29,50 @@
 
 ;; Core functions
 
-(defn- get-repos
-  "Return a hash-map with all repositories from `repos-url`."
+(defonce repos
+  (atom
+   (when-let [res (try (curl/get repos-url)
+                       (catch Exception e
+                         (println "ERROR: Cannot reach repos-url\n"
+                                  (.getMessage e))))]
+     (json/parse-string (:body res) true))))
+
+(defn get-reused-by
+  "Return a hash-map with the repo and the number of reuse."
+  [repo]
+  ;; Only check available information on github.com
+  (if-not (re-find #"github\.com" repo)
+    {:repertoire_url repo :reused "N/A"}
+    (when-let [repo-github-html
+               (try (curl/get (str repo "/network/dependents"))
+                    (catch Exception e
+                      (println "Cannot get"
+                               (str repo "/network/dependents\n")
+                               (.getMessage e))))]
+      (let [btn-links (-> repo-github-html
+                          :body
+                          h/parse
+                          h/as-hickory
+                          (as-> d (hs/select (hs/class "btn-link") d)))
+            nb-reps   (or (try (re-find #"\d+" (last (:content (nth btn-links 1))))
+                               (catch Exception _ "0"))
+                          0)
+            nb-pkgs   (or (try (re-find #"\d+" (last (:content (nth btn-links 2))))
+                               (catch Exception _ "0"))
+                          0)]
+        {:repertoire_url repo
+         :reused         (+ (Integer/parseInt nb-reps) (Integer/parseInt nb-pkgs))}))))
+
+(defn reuse
+  "Update repos.json with reused-by info."
   []
-  (when-let [res (try (curl/get repos-url)
-                      (catch Exception e
-                        (println "ERROR: Cannot reach repos-url\n"
-                                 (.getMessage e))))]
-    (json/parse-string (:body res) true)))
+  (spit "reuse.json"
+        (json/generate-string
+         (->> @repos
+              (map :repertoire_url)
+              (filter #(not (re-find #"^http://github\.com" %)))
+              (map get-reused-by))))
+  (println "Added reuse.son"))
 
 (defn- get-packagejson-deps [body]
   (let [parsed (json/parse-string body)
@@ -125,7 +163,7 @@
 
 (defn- repos-deps []
   (let [res (atom [])]
-    (doseq [r (->> (get-repos)
+    (doseq [r (->> @repos
                    (filter #(not (= (:langage %) "")))
                    (filter #(not (= (:est_archive %) true))))]
       (let [deps (repo-check-dep-files r)]
@@ -134,4 +172,5 @@
     (spit "deps.json" (json/generate-string @res))))
 
 (defn -main []
-  (repos-deps))
+  (repos-deps)
+  (reuse))
