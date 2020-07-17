@@ -13,7 +13,7 @@
              [java-time :as t])
   (:gen-class))
 
-;; Setup definitions
+;; Definitions
 
 (defonce dep-files
   {"PHP"        ["composer.json"]
@@ -28,16 +28,7 @@
 (defonce repos-url
   "https://raw.githubusercontent.com/etalab/data-codes-sources-fr/master/data/repertoires/json/all.json")
 
-;; Utility functions
-
-(defn- less-than-a-week-ago [date-str]
-  (let [one-week-ago (t/minus (t/instant) (t/days 7))]
-    (= (t/min (t/instant date-str) one-week-ago)
-       one-week-ago)))
-
-;; Core functions
-
-(def repos
+(defonce repos
   (atom
    (when-let [res (try (curl/get repos-url)
                        (catch Exception e
@@ -50,7 +41,14 @@
     (atom
      (reduce #(merge-with into %1 %2) deps))))
 
-;; Validate modules
+;; Utility functions
+
+(defn- less-than-a-week-ago [date-str]
+  (let [one-week-ago (t/minus (t/instant) (t/days 7))]
+    (= (t/min (t/instant date-str) one-week-ago)
+       one-week-ago)))
+
+;; Module validation
 
 (defn- get-valid-npm [module]
   (let [registry-url-fmt "https://registry.npmjs.org/-/v1/search?text=%s&size=1"]
@@ -116,6 +114,8 @@
        :description (:description (:package (json/parse-string (:body res) true)))
        :link        (format registry-url-fmt module)})))
 
+;; Reuse information
+
 (defn add-reuse
   "Return a hash-map with the repo and the number of reuse."
   [{:keys [repertoire_url plateforme reuse_updated] :as repo}]
@@ -152,6 +152,8 @@
   []
   (reset! repos (doall (map add-reuse @repos)))
   (println "Added reuse information"))
+
+;; Dependencies information
 
 (defn- get-packagejson-deps [body]
   (let [parsed (json/parse-string body)
