@@ -36,15 +36,15 @@
                      (try (curl/get repos-url)
                           (catch Exception e
                             (println (.getMessage e)))))]
-    (atom (take 30 (json/parse-string (:body res) true)))))
+    (atom (json/parse-string (:body res) true))))
 
-(def reused-known
+(def reused-init
   (when-let [res (try (slurp "reuse.json")
                       (catch Exception e
                         (println (.getMessage e))))]
     (json/parse-string res)))
 
-(def deps-known
+(def deps-init
   (let [deps (try (slurp "deps.json")
                   (catch Exception e
                     (println (.getMessage e))))]
@@ -59,8 +59,8 @@
 (defn- check-module-of-type-is-known [module type]
   (when-let [res (not-empty
                   (filter #(and (= module (:name %)) (= type (:type %)))
-                          @deps-known))]
-    (when (less-than-x-days-ago 30 (:updated (first res)))
+                          @deps-init))]
+    (when (less-than-x-days-ago 28 (:updated (first res)))
       (first res))))
 
 ;; Module validation
@@ -188,8 +188,8 @@
   [{:keys [repertoire_url]}]
   (if-let [{:keys [updated] :as entry}
            (walk/keywordize-keys
-            (get reused-known repertoire_url))]
-    (if (less-than-x-days-ago 7 updated)
+            (get reused-init repertoire_url))]
+    (if (less-than-x-days-ago 14 updated)
       (hash-map repertoire_url entry)
       (get-reuse repertoire_url))
     (get-reuse repertoire_url)))
@@ -276,7 +276,7 @@
   (if (or (= langage "")
           (= est_archive true)
           (when-let [d (not-empty deps_updated)]
-            (less-than-x-days-ago 7 d)))
+            (less-than-x-days-ago 14 d)))
     repo
     (let [baseurl    (re-find #"https?://[^/]+" repertoire_url)
           fmt-str    (if (= plateforme "GitHub")
@@ -313,7 +313,7 @@
   (let [deps-list (map #(hash-map :type (name k) :name %) v)]
     (-> (map #(->> (filter (fn [{:keys [name type]}]
                              (and (= name (:name %))
-                                  (= type (:type %)))) @deps-known)
+                                  (= type (:type %)))) @deps-init)
                    (map (fn [e] (dissoc e :updated))))
              deps-list)
         flatten)))
@@ -332,7 +332,7 @@
   "Update @repos with dependencies information."
   []
   (let [res (atom [])]
-    (doseq [r @repos] ;; FIXME
+    (doseq [r @repos]
       (let [deps (add-dependencies r)]
         (swap! res conj deps)))
     (reset! repos @res))
@@ -355,7 +355,7 @@
                   :composer (map get-valid-composer modules)
                   :pypi     (map get-valid-pypi modules))
                 (remove nil?))))
-      (reset! deps-known @res)
+      (reset! deps-init @res)
       (spit "deps.json" (json/generate-string @res)))
     (println "Added deps.json")))
 
@@ -371,8 +371,8 @@
                                             deps)))
                                  reps))
                     (assoc dep :repos)))
-             @deps-known)]
-    (reset! deps-known deps-reps)
+             @deps-init)]
+    (reset! deps-init deps-reps)
     (spit "deps-with-repos.json" (json/generate-string deps-reps))))
 
 (defn- spit-deps-repos []
@@ -397,13 +397,13 @@
   (spit "deps-count.json"
         (json/generate-string
          {:deps-count
-          (reduce + (map #(count (:repos %)) @deps-known))}))
+          (reduce + (map #(count (:repos %)) @deps-init))}))
   (println "Added deps-count.json"))
 
 (defn- spit-deps-top []
   (spit "deps-top.json"
         (json/generate-string
-         (->> @deps-known
+         (->> @deps-init
               (sort-by #(count (:repos %)))
               reverse
               (take 100))))
