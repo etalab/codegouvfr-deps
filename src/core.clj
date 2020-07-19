@@ -396,8 +396,7 @@
 (defn- spit-deps-count []
   (spit "deps-count.json"
         (json/generate-string
-         {:deps-count
-          (reduce + (map #(count (:repos %)) @deps-init))}))
+         {:deps-count (count @deps-init)}))
   (println "Added deps-count.json"))
 
 (defn- spit-deps-top []
