@@ -163,25 +163,21 @@
   (when-let [repo-github-html
              (try (curl/get (str repertoire_url "/network/dependents"))
                   (catch Exception e
-                    (println "Cannot get"
-                             (str repertoire_url "/network/dependents\n")
-                             (.getMessage e))))]
+                    (println (.getMessage e))))]
     (let [btn-links (-> repo-github-html
                         :body
                         h/parse
                         h/as-hickory
                         (as-> d (hs/select (hs/class "btn-link") d)))
-          nb-reps   (or (try (re-find #"\d+" (last (:content (nth btn-links 1))))
-                             (catch Exception _ 0))
-                        0)
-          nb-pkgs   (or (try (re-find #"\d+" (last (:content (nth btn-links 2))))
-                             (catch Exception _ 0))
-                        0)]
+          nb-reps   (try (re-find #"\d+" (last (:content (nth btn-links 1))))
+                         (catch Exception _ "0"))
+          nb-pkgs   (try (re-find #"\d+" (last (:content (nth btn-links 2))))
+                         (catch Exception _ "0"))]
       (hash-map
        repertoire_url
        {:updated (str (t/instant))
-        :reuse   (+ (Integer/parseInt nb-reps)
-                    (Integer/parseInt nb-pkgs))}))))
+        :reuse   (+ (edn/read-string nb-reps)
+                    (edn/read-string nb-pkgs))}))))
 
 (defn- add-reuse
   "Return a hash-map entry with the repo URL and the reuse information."
