@@ -29,17 +29,26 @@
 (defonce repos-url
   "https://raw.githubusercontent.com/etalab/data-codes-sources-fr/master/data/repertoires/json/all.json")
 
-(defonce repos
-  (atom
-   (when-let [res (try (curl/get repos-url)
-                       (catch Exception e
-                         (println "ERROR: Cannot reach repos-url\n"
-                                  (.getMessage e))))]
-     (json/parse-string (:body res) true))))
+(def repos
+  (when-let [res (or (try (slurp "repos-raw.json")
+                          (catch Exception e
+                            (println (.getMessage e))))
+                     (try (curl/get repos-url)
+                          (catch Exception e
+                            (println (.getMessage e)))))]
+    (atom (take 30 (json/parse-string (:body res) true)))))
 
-(defonce deps-known (json/parse-string (slurp "deps.json") true))
+(def reused-known
+  (when-let [res (try (slurp "reuse.json")
+                      (catch Exception e
+                        (println (.getMessage e))))]
+    (json/parse-string res)))
 
-(defonce reuse (json/parse-string (slurp "reuse.json")))
+(def deps-known
+  (let [deps (try (slurp "deps.json")
+                  (catch Exception e
+                    (println (.getMessage e))))]
+    (atom (json/parse-string deps true))))
 
 ;; Utility functions
 
@@ -50,7 +59,7 @@
 (defn- check-module-of-type-is-known [module type]
   (when-let [res (not-empty
                   (filter #(and (= module (:name %)) (= type (:type %)))
-                          deps-known))]
+                          @deps-known))]
     (when (less-than-x-days-ago 30 (:updated (first res)))
       (first res))))
 
@@ -179,13 +188,13 @@
   [{:keys [repertoire_url]}]
   (if-let [{:keys [updated] :as entry}
            (walk/keywordize-keys
-            (get reuse repertoire_url))]
+            (get reused-known repertoire_url))]
     (if (less-than-x-days-ago 7 updated)
       (hash-map repertoire_url entry)
       (get-reuse repertoire_url))
     (get-reuse repertoire_url)))
 
-(defn- add-reuse-info
+(defn- spit-reuse-info
   "Generate reuse.json with GitHub reused-by information."
   []
   (let [res (atom {})]
@@ -300,20 +309,38 @@
               (swap! deps #(merge-with into % reqs))))))
       (assoc repo :deps @deps :deps_updated (str (t/instant))))))
 
-(defn- add-repos-deps
+(defn- deps-map-to-valid-deps-list [[k v]]
+  (let [deps-list (map #(hash-map :type (name k) :name %) v)]
+    (-> (map #(->> (filter (fn [{:keys [name type]}]
+                             (and (= name (:name %))
+                                  (= type (:type %)))) @deps-known)
+                   (map (fn [e] (dissoc e :updated))))
+             deps-list)
+        flatten)))
+
+(defn- spit-repos-deps []
+  (let [res (map
+             (fn [r]
+               (update r :deps
+                       #(into [] (flatten (map deps-map-to-valid-deps-list %)))))
+             @repos)]
+    (reset! repos res)
+    (spit "repos-deps.json" (json/generate-string res))
+    (println "Added repos-deps.json")))
+
+(defn- spit-repos-deps-raw
   "Update @repos with dependencies information."
   []
   (let [res (atom [])]
-    (doseq [r @repos]
+    (doseq [r @repos] ;; FIXME
       (let [deps (add-dependencies r)]
         (swap! res conj deps)))
     (reset! repos @res))
-  (println "Added dependencies information"))
+  (spit "repos-deps-raw.json" (json/generate-string @repos))
+  (println "Added repos-deps-raw.json"))
 
-(defn -main []
-  (add-repos-deps)
-  (add-reuse-info) 
-  (spit "repos.json" (json/generate-string @repos))
+(defn- spit-deps
+  []
   (when-let [deps (not-empty (filter not-empty (map :deps @repos)))]
     (let [d   (reduce #(merge-with into %1 %2) deps)
           res (atom {})]
@@ -328,4 +355,70 @@
                   :composer (map get-valid-composer modules)
                   :pypi     (map get-valid-pypi modules))
                 (remove nil?))))
-      (spit "deps.json" (json/generate-string @res)))))
+      (reset! deps-known @res)
+      (spit "deps.json" (json/generate-string @res)))
+    (println "Added deps.json")))
+
+(defn- spit-deps-with-repos []
+  (let [reps (map #(select-keys % [:deps :repertoire_url]) @repos)
+        deps-reps
+        (map (fn [{:keys [name type] :as dep}]
+               (->> (map :repertoire_url
+                         (filter (fn [{:keys [deps]}]
+                                   (not-empty
+                                    (filter (fn [d] (and (= (:name d) name)
+                                                         (= (:type d) type)))
+                                            deps)))
+                                 reps))
+                    (assoc dep :repos)))
+             @deps-known)]
+    (reset! deps-known deps-reps)
+    (spit "deps-with-repos.json" (json/generate-string deps-reps))))
+
+(defn- spit-deps-repos []
+  (let [reps0 (group-by :repertoire_url @repos)
+        reps  (reduce-kv (fn [m k v] (assoc m k (first (map :deps v))))
+                         {}
+                         reps0)]
+    (spit "deps-repos.json"
+          (json/generate-string reps))
+    (println "Updated deps-repos.json")))
+
+(defn- spit-deps-orgas []
+  (let [orgs0 (group-by (juxt :organisation_nom :plateforme) @repos)
+        orgs  (reduce-kv (fn [m k v] (assoc m k (first (map :deps v))))
+                         {}
+                         orgs0)]
+    (spit "deps-orgas.json"
+          (json/generate-string orgs))
+    (println "Added deps-orgas.json")))
+
+(defn- spit-deps-count []
+  (spit "deps-count.json"
+        (json/generate-string
+         {:deps-count
+          (reduce + (map #(count (:repos %)) @deps-known))}))
+  (println "Added deps-count.json"))
+
+(defn- spit-deps-top []
+  (spit "deps-top.json"
+        (json/generate-string
+         (->> @deps-known
+              (sort-by #(count (:repos %)))
+              reverse
+              (take 100))))
+  (println "Added deps-top.json"))
+
+(defn -main []
+  (spit-reuse-info)      ;; reuse.json
+  (spit-repos-deps-raw)  ;; repos-deps-raw.json
+  (spit-deps)            ;; deps.json
+  (spit-repos-deps)      ;; repos-deps.json
+  (spit-deps-with-repos) ;; deps-with-repos.json
+  (spit-deps-repos)      ;; deps-repos.json
+  (spit-deps-orgas)      ;; deps-orgas.json
+  (spit-deps-count)      ;; deps-count.json
+  (spit-deps-top)        ;; deps-top.json
+  (println "Added all json files"))
+
+;; (-main)
