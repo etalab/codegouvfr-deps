@@ -169,10 +169,10 @@
                         h/parse
                         h/as-hickory
                         (as-> d (hs/select (hs/class "btn-link") d)))
-          nb-reps   (try (re-find #"\d+" (last (:content (nth btn-links 1))))
-                         (catch Exception _ "0"))
-          nb-pkgs   (try (re-find #"\d+" (last (:content (nth btn-links 2))))
-                         (catch Exception _ "0"))]
+          nb-reps   (or (try (re-find #"\d+" (last (:content (nth btn-links 1))))
+                             (catch Exception _ "0")) "0")
+          nb-pkgs   (or (try (re-find #"\d+" (last (:content (nth btn-links 2))))
+                             (catch Exception _ "0")) "0")]
       (hash-map
        repertoire_url
        {:updated (str (t/instant))
