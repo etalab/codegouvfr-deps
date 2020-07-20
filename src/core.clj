@@ -162,8 +162,7 @@
   [repertoire_url]
   (when-let [repo-github-html
              (try (curl/get (str repertoire_url "/network/dependents"))
-                  (catch Exception e
-                    (println (.getMessage e))))]
+                  (catch Exception _ nil))]
     (let [btn-links (-> repo-github-html
                         :body
                         h/parse
@@ -254,7 +253,7 @@
   (when-let [deps0 (not-empty
                     (filter #(= (name (:tag %)) "dependencies")
                             (->> (:content (try (xml/parse-str body)
-                                                (catch Exception e nil)))
+                                                (catch Exception _ nil)))
                                  (remove string?))))]
     (let [deps (->> deps0 first :content
                     (remove string?)
@@ -284,7 +283,7 @@
           deps       (atom {})]
       (doseq [f dep-fnames]
         (when-let [res (try (curl/get (format fmt-str organisation_nom nom f))
-                            (catch Exception e (println (.getMessage e))))]
+                            (catch Exception _ nil))]
           (when (= 200 (:status res))
             (let [body (:body res)
                   reqs (condp = f
