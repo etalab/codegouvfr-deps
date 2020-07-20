@@ -36,7 +36,7 @@
                      (:body (try (curl/get repos-url)
                                  (catch Exception e
                                    (println (.getMessage e))))))]
-    (atom (json/parse-string res true))))
+    (atom (take 200 (json/parse-string res true)))))
 
 (def reused-init
   (when-let [res (try (slurp "reuse.json")
@@ -71,15 +71,17 @@
    (let [registry-url-fmt "https://registry.npmjs.org/-/v1/search?text=%s&size=1"]
      (when-let [res (try (curl/get (format registry-url-fmt module))
                          (catch Exception _ nil))]
-       (let [{:keys [description links]}
-             (-> (:body res)
-                 (json/parse-string true)
-                 :objects first :package)]
-         {:name        module
-          :type        "npm"
-          :updated     (str (t/instant))
-          :description description
-          :link        (:npm links)})))))
+       (when (= (:status res) 200)
+         (let [{:keys [description links]}
+               (-> (:body res)
+                   (try (json/parse-string true)
+                        (catch Exception _ nil))
+                   :objects first :package)]
+           {:name        module
+            :type        "npm"
+            :updated     (str (t/instant))
+            :description description
+            :link        (:npm links)}))))))
 
 (defn- get-valid-pypi [module]
   (or
@@ -87,9 +89,10 @@
    (let [registry-url-fmt "https://pypi.org/pypi/%s/json"]
      (when-let [res (try (curl/get (format registry-url-fmt module))
                          (catch Exception _ nil))]
-       (let [{:keys [info]}
-             (-> (:body res)
-                 (json/parse-string true))]
+       (when-let [{:keys [info]}
+                  (-> (:body res)
+                      (try (json/parse-string true)
+                           (catch Exception _ nil)))]
          {:name        module
           :type        "pypi"
           :updated     (str (t/instant))
@@ -124,11 +127,14 @@
    (let [registry-url-fmt "https://clojars.org/api/artifacts/%s"]
      (when-let [res (try (curl/get (format registry-url-fmt module))
                          (catch Exception _ nil))]
-       {:name        module
-        :type        "clojure"
-        :updated     (str (t/instant))
-        :description (:description (json/parse-string (:body res) true))
-        :link        (str "https://clojars.org/" module)}))))
+       (when (= (:status res) 200)
+         {:name        module
+          :type        "clojure"
+          :updated     (str (t/instant))
+          :description (:description
+                        (try (json/parse-string (:body res) true)
+                             (catch Exception _ nil)))
+          :link        (str "https://clojars.org/" module)})))))
 
 (defn- get-valid-bundler [module]
   (or
@@ -136,12 +142,15 @@
    (let [registry-url-fmt "https://rubygems.org/api/v1/gems/%s.json"]
      (when-let [res (try (curl/get (format registry-url-fmt module))
                          (catch Exception _ nil))]
-       (let [{:keys [info project_uri]} (json/parse-string (:body res) true)]
-         {:name        module
-          :type        "bundler"
-          :updated     (str (t/instant))
-          :description info
-          :link        project_uri})))))
+       (when (= (:status res) 200)
+         (let [{:keys [info project_uri]}
+               (try (json/parse-string (:body res) true)
+                    (catch Exception _ nil))]
+           {:name        module
+            :type        "bundler"
+            :updated     (str (t/instant))
+            :description info
+            :link        project_uri}))))))
 
 (defn- get-valid-composer [module]
   (or
@@ -149,11 +158,14 @@
    (let [registry-url-fmt "https://packagist.org/packages/%s"]
      (when-let [res (try (curl/get (str (format registry-url-fmt module) ".json"))
                          (catch Exception _ nil))]
-       {:name        module
-        :type        "composer"
-        :updated     (str (t/instant))
-        :description (:description (:package (json/parse-string (:body res) true)))
-        :link        (format registry-url-fmt module)}))))
+       (when (= (:status res) 200)
+         {:name        module
+          :type        "composer"
+          :updated     (str (t/instant))
+          :description (:description
+                        (:package (try (json/parse-string (:body res) true)
+                                       (catch Exception _ nil))))
+          :link        (format registry-url-fmt module)})))))
 
 ;; Reuse information
 
