@@ -36,7 +36,7 @@
                      (:body (try (curl/get repos-url)
                                  (catch Exception e
                                    (println (.getMessage e))))))]
-    (atom (take 200 (json/parse-string res true)))))
+    (atom (json/parse-string res true))))
 
 (def reused-init
   (when-let [res (try (slurp "reuse.json")
@@ -67,14 +67,13 @@
 
 (defn- get-valid-npm [module]
   (or
-   (check-module-of-type-is-known module "npm")
+   false ;; (check-module-of-type-is-known module "npm")
    (let [registry-url-fmt "https://registry.npmjs.org/-/v1/search?text=%s&size=1"]
      (when-let [res (try (curl/get (format registry-url-fmt module))
                          (catch Exception _ nil))]
        (when (= (:status res) 200)
          (let [{:keys [description links]}
-               (-> (:body res)
-                   (try (json/parse-string true)
+               (-> (try (json/parse-string (:body res) true)
                         (catch Exception _ nil))
                    :objects first :package)]
            {:name        module
@@ -90,9 +89,8 @@
      (when-let [res (try (curl/get (format registry-url-fmt module))
                          (catch Exception _ nil))]
        (when-let [{:keys [info]}
-                  (-> (:body res)
-                      (try (json/parse-string true)
-                           (catch Exception _ nil)))]
+                  (try (json/parse-string (:body res) true)
+                       (catch Exception _ nil))]
          {:name        module
           :type        "pypi"
           :updated     (str (t/instant))
@@ -110,11 +108,13 @@
          "https://search.maven.org/classic/#search|ga|1|g:%%22%s%%22%%20AND%%20a:%%22%s%%22"]
      (when-let [res (try (curl/get (format registry-url-fmt groupId artifactId))
                          (catch Exception _ nil))]
-       (when-let [tags (not-empty (-> (json/parse-string (:body res) true)
-                                      :response
-                                      :docs
-                                      first
-                                      :tags))]
+       (when-let [tags (not-empty
+                        (-> (try (json/parse-string (:body res) true)
+                                 (catch Exception _ nil))
+                            :response
+                            :docs
+                            first
+                            :tags))]
          {:name        module
           :type        "maven"
           :updated     (str (t/instant))
@@ -162,9 +162,10 @@
          {:name        module
           :type        "composer"
           :updated     (str (t/instant))
-          :description (:description
-                        (:package (try (json/parse-string (:body res) true)
-                                       (catch Exception _ nil))))
+          :description (-> (try (json/parse-string (:body res) true)
+                                (catch Exception _ nil))
+                           :package
+                           :description)
           :link        (format registry-url-fmt module)})))))
 
 ;; Reuse information
