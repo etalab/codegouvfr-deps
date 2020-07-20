@@ -387,7 +387,7 @@
 
 (defn- spit-deps-orgas []
   (let [orgs0 (group-by (juxt :organisation_nom :plateforme) @repos)
-        orgs  (reduce-kv (fn [m k v] (assoc m k (map :deps v)))
+        orgs  (reduce-kv (fn [m k v] (assoc m k (flatten (map :deps v))))
                          {}
                          orgs0)]
     (spit "deps-orgas.json" (json/generate-string orgs))
