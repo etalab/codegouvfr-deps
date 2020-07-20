@@ -36,7 +36,7 @@
                      (:body (try (curl/get repos-url)
                                  (catch Exception e
                                    (println (.getMessage e))))))]
-    (atom (take 100 (json/parse-string res true)))))
+    (atom (json/parse-string res true))))
 
 (def reused-init
   (when-let [res (try (slurp "reuse.json")
