@@ -209,52 +209,53 @@
       {:npm (into [] (keys deps))})))
 
 (defn- get-composerjson-deps [body]
-(let [parsed (json/parse-string body)
-      deps   (get parsed "require")]
-  (when (seq deps)
-    {:composer (into [] (keys deps))})))
+  (let [parsed (json/parse-string body)
+        deps   (get parsed "require")]
+    (when (seq deps)
+      {:composer (into [] (keys deps))})))
 
 (defn- get-setuppy-deps [body]
-(let [deps0 (last (re-find #"(?ms)install_requires=\[([^]]+)\]" body))]
-  (when (seq deps0)
-    (let [deps (map #(get % 1) (re-seq #"'([^>\n]+)(>=.+)?'" deps0))]
-      (when (seq deps)
-        {:pypi (into [] (map s/trim deps))})))))
+  (let [deps0 (last (re-find #"(?ms)install_requires=\[([^]]+)\]" body))]
+    (when (seq deps0)
+      (let [deps (map #(get % 1) (re-seq #"'([^>\n]+)(>=.+)?'" deps0))]
+        (when (seq deps)
+          {:pypi (into [] (map s/trim deps))})))))
 
 (defn- get-requirements-deps [body]
-(when (not-empty body)
-  (let [deps (map last (re-seq #"(?m)^([^=]+)==.+" body))]
-    (when (seq deps)
-      {:pypi (into [] (map s/trim deps))}))))
+  (when (not-empty body)
+    (let [deps (map last (re-seq #"(?m)^([^=]+)==.+" body))]
+      (when (seq deps)
+        {:pypi (into [] (map s/trim deps))}))))
 
 (defn- get-gemfile-deps [body]
-(let [deps (re-seq #"(?ms)^gem '([^']+)'" body)]
-  (when (seq deps)
-    {:bundler (into [] (map last deps))})))
+  (let [deps (re-seq #"(?ms)^gem '([^']+)'" body)]
+    (when (seq deps)
+      {:bundler (into [] (map last deps))})))
 
 (defn- get-depsedn-deps [body]
-(let [deps (->> (map first (:deps (edn/read-string body)))
-                (map str)
-                (filter #(not (re-find #"^org\.clojure" %)))
-                (map symbol)
-                (map name))]
-  (when deps {:clojars (into [] deps)})))
+  (let [deps (->> (map first (:deps (edn/read-string body)))
+                  (map str)
+                  (filter #(not (re-find #"^org\.clojure" %)))
+                  (map symbol)
+                  (map name))]
+    (when deps {:clojars (into [] deps)})))
 
 (defn- get-projectclj-deps [body]
-(let [deps (->> (edn/read-string body)
-                (drop 3)
-                (apply hash-map)
-                :dependencies
-                (map first)
-                (filter #(not (re-find #"^org\.clojure" (name %))))
-                (map name))]
-  (when deps {:clojars (into [] deps)})))
+  (let [deps (->> (edn/read-string body)
+                  (drop 3)
+                  (apply hash-map)
+                  :dependencies
+                  (map first)
+                  (filter #(not (re-find #"^org\.clojure" (name %))))
+                  (map name))]
+    (when deps {:clojars (into [] deps)})))
 
 (defn- get-pomxml-deps [body]
-  (when-let [deps0 (filter #(= (name (:tag %)) "dependencies")
-                           (->> (:content (try (xml/parse-str body)
-                                               (catch Exception _ nil)))
-                                (remove string?)))]
+  (when-let [deps0 (not-empty
+                    (filter #(= (name (:tag %)) "dependencies")
+                            (->> (:content (try (xml/parse-str body)
+                                                (catch Exception e nil)))
+                                 (remove string?))))]
     (let [deps (->> deps0 first :content
                     (remove string?)
                     (map #(let [[g a] (remove string? (:content %))]
