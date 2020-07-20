@@ -250,11 +250,11 @@
     (when deps {:clojars (into [] deps)})))
 
 (defn- get-pomxml-deps [body]
-  (when-let [deps0 (not-empty
-                    (filter #(= (name (:tag %)) "dependencies")
-                            (->> (:content (try (xml/parse-str body)
-                                                (catch Exception _ nil)))
-                                 (remove string?))))]
+  (when-let [deps0 (try (not-empty
+                         (filter #(= (name (:tag %)) "dependencies")
+                                 (->> (:content (xml/parse-str body))
+                                      (remove string?))))
+                        (catch Exception _ nil))]
     (let [deps (->> deps0 first :content
                     (remove string?)
                     (map #(let [[g a] (remove string? (:content %))]
@@ -386,10 +386,21 @@
     (println "Updated deps-repos.json")))
 
 (defn- spit-deps-orgas []
-  (let [orgs0 (group-by (juxt :organisation_nom :plateforme) @repos)
-        orgs  (reduce-kv (fn [m k v] (assoc m k (flatten (map :deps v))))
+  (let [orgs1 (group-by (juxt :organisation_nom :plateforme) @repos)
+        orgs0 (reduce-kv (fn [m k v] (assoc m k (flatten (map :deps v))))
                          {}
-                         orgs0)]
+                         orgs1)
+        orgs  (reduce-kv
+               (fn [m k v]
+                 (assoc m k (map
+                             #(assoc % :repos
+                                     (:repos
+                                      (first
+                                       (get (group-by (juxt :name :type) @deps-init)
+                                            [(:name %) (:type %)]))))
+                             v)))
+               {}
+               orgs0)]
     (spit "deps-orgas.json" (json/generate-string orgs))
     (println "Added deps-orgas.json")))
 
