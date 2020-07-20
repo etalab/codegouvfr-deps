@@ -33,10 +33,10 @@
   (when-let [res (or (try (slurp "repos-raw.json")
                           (catch Exception e
                             (println (.getMessage e))))
-                     (try (curl/get repos-url)
-                          (catch Exception e
-                            (println (.getMessage e)))))]
-    (atom (json/parse-string (:body res) true))))
+                     (:body (try (curl/get repos-url)
+                                 (catch Exception e
+                                   (println (.getMessage e))))))]
+    (atom (json/parse-string res true))))
 
 (def reused-init
   (when-let [res (try (slurp "reuse.json")
@@ -324,7 +324,7 @@
     (spit "repos-deps.json" (json/generate-string res))
     (println "Added repos-deps.json")))
 
-(defn- spit-repos-deps-raw
+(defn- update-repos-deps-raw
   "Update @repos with dependencies information."
   []
   (let [res (atom [])]
@@ -332,10 +332,12 @@
       (let [deps (add-dependencies r)]
         (swap! res conj deps)))
     (reset! repos @res))
-  (spit "repos-deps-raw.json" (json/generate-string @repos))
-  (println "Added repos-deps-raw.json"))
+  ;; (spit "repos-deps.json" (json/generate-string @repos))
+  ;; (println "Updated repos-deps.json")
+  )
 
-(defn- spit-deps
+(defn- update-deps
+  "Update @deps-init with the list of valid dependencies."
   []
   (when-let [deps (not-empty (filter not-empty (map :deps @repos)))]
     (let [d   (reduce #(merge-with into %1 %2) deps)
@@ -352,8 +354,10 @@
                   :pypi     (map get-valid-pypi modules))
                 (remove nil?))))
       (reset! deps-init @res)
-      (spit "deps.json" (json/generate-string @res)))
-    (println "Added deps.json")))
+      ;; (spit "deps.json" (json/generate-string @res))
+      )
+    ;; (println "Added deps.json")
+    ))
 
 (defn- spit-deps-with-repos []
   (let [reps (map #(select-keys % [:deps :repertoire_url]) @repos)
@@ -369,7 +373,7 @@
                     (assoc dep :repos)))
              @deps-init)]
     (reset! deps-init deps-reps)
-    (spit "deps-with-repos.json" (json/generate-string deps-reps))))
+    (spit "deps.json" (json/generate-string deps-reps))))
 
 (defn- spit-deps-repos []
   (let [reps0 (group-by :repertoire_url @repos)
@@ -382,11 +386,10 @@
 
 (defn- spit-deps-orgas []
   (let [orgs0 (group-by (juxt :organisation_nom :plateforme) @repos)
-        orgs  (reduce-kv (fn [m k v] (assoc m k (first (map :deps v))))
+        orgs  (reduce-kv (fn [m k v] (assoc m k (map :deps v)))
                          {}
                          orgs0)]
-    (spit "deps-orgas.json"
-          (json/generate-string orgs))
+    (spit "deps-orgas.json" (json/generate-string orgs))
     (println "Added deps-orgas.json")))
 
 (defn- spit-deps-count []
@@ -405,15 +408,15 @@
   (println "Added deps-top.json"))
 
 (defn -main []
-  (spit-reuse-info)      ;; reuse.json
-  (spit-repos-deps-raw)  ;; repos-deps-raw.json
-  (spit-deps)            ;; deps.json
-  (spit-repos-deps)      ;; repos-deps.json
-  (spit-deps-with-repos) ;; deps-with-repos.json
-  (spit-deps-repos)      ;; deps-repos.json
-  (spit-deps-orgas)      ;; deps-orgas.json
-  (spit-deps-count)      ;; deps-count.json
-  (spit-deps-top)        ;; deps-top.json
+  (spit-reuse-info)        ;; reuse.json
+  (update-repos-deps-raw)  ;; update @repos with deps raw
+  (update-deps)            ;; update @deps-init
+  (spit-repos-deps)        ;; repos-deps.json
+  (spit-deps-with-repos)   ;; deps.json
+  (spit-deps-repos)        ;; deps-repos.json
+  (spit-deps-orgas)        ;; deps-orgas.json
+  (spit-deps-count)        ;; deps-count.json
+  (spit-deps-top)          ;; deps-top.json
   (println "Added all json files"))
 
 ;; (-main)
