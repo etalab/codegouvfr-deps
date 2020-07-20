@@ -36,7 +36,7 @@
                      (:body (try (curl/get repos-url)
                                  (catch Exception e
                                    (println (.getMessage e))))))]
-    (atom (json/parse-string res true))))
+    (atom (take 100 (json/parse-string res true)))))
 
 (def reused-init
   (when-let [res (try (slurp "reuse.json")
@@ -392,11 +392,11 @@
     (spit "deps-orgas.json" (json/generate-string orgs))
     (println "Added deps-orgas.json")))
 
-(defn- spit-deps-count []
-  (spit "deps-count.json"
+(defn- spit-deps-total []
+  (spit "deps-total.json"
         (json/generate-string
-         {:deps-count (count @deps-init)}))
-  (println "Added deps-count.json"))
+         {:deps-total (count @deps-init)}))
+  (println "Added deps-total.json"))
 
 (defn- spit-deps-top []
   (spit "deps-top.json"
@@ -415,7 +415,7 @@
   (spit-deps-with-repos)   ;; deps.json
   (spit-deps-repos)        ;; deps-repos.json
   (spit-deps-orgas)        ;; deps-orgas.json
-  (spit-deps-count)        ;; deps-count.json
+  (spit-deps-total)        ;; deps-total.json
   (spit-deps-top)          ;; deps-top.json
   (println "Added all json files"))
 
