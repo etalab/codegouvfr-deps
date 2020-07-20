@@ -377,7 +377,7 @@
     (spit "deps.json" (json/generate-string deps-reps))))
 
 (defn- spit-deps-repos []
-  (let [reps0 (group-by :repertoire_url @repos)
+  (let [reps0 (group-by (juxt :nom :organisation_nom) @repos)
         reps  (reduce-kv (fn [m k v] (assoc m k (first (map :deps v))))
                          {}
                          reps0)]
