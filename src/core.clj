@@ -251,10 +251,10 @@
   (when deps {:clojars (into [] deps)})))
 
 (defn- get-pomxml-deps [body]
-  (when-let [deps0 (try (filter #(= (name (:tag %)) "dependencies")
-                                (->> (:content (xml/parse-str body))
-                                     (remove string?)))
-                        (catch Exception e (println (.getMessage e))))]
+  (when-let [deps0 (filter #(= (name (:tag %)) "dependencies")
+                           (->> (:content (try (xml/parse-str body)
+                                               (catch Exception _ nil)))
+                                (remove string?)))]
     (let [deps (->> deps0 first :content
                     (remove string?)
                     (map #(let [[g a] (remove string? (:content %))]
