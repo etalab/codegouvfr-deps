@@ -29,22 +29,40 @@
 (defonce repos-url
   "https://raw.githubusercontent.com/etalab/data-codes-sources-fr/master/data/repertoires/json/all.json")
 
+;; Initialize @repos by reusing :deps_updated and :deps from
+;; repos-deps.json when available, otherwise using repos-raw.json,
+;; falling back on curl'ing repos-url if needed.
 (def repos
-  (when-let [res (or (try (slurp "repos-raw.json")
-                          (catch Exception e
-                            (println (.getMessage e))))
-                     (:body (try (curl/get repos-url)
-                                 (catch Exception e
-                                   (println (.getMessage e))))))]
-    (atom (json/parse-string res true))))
+  (let [repos-deps (-> (try (slurp "repos-deps.json")
+                            (catch Exception e
+                              (println (.getMessage e))))
+                       (json/parse-string true))
+        res        (-> (or (try (slurp "repos-raw.json")
+                                (catch Exception e
+                                  (println (.getMessage e))))
+                           (:body (try (curl/get repos-url)
+                                       (catch Exception e
+                                         (println (.getMessage e))))))
+                       (json/parse-string true))]
+    (->>
+     (map #(merge %
+                  (-> (filter (fn [r]
+                                (and (= (:nom r) (:nom %))
+                                     (= (:organisation_nom r)
+                                        (:organisation_nom %))))
+                              repos-deps)
+                      first
+                      (select-keys [:deps_updated :deps])))
+          res)
+     atom)))
 
-(def reused-init
+(def reused
   (when-let [res (try (slurp "reuse.json")
                       (catch Exception e
                         (println (.getMessage e))))]
     (json/parse-string res)))
 
-(def deps-init
+(def deps
   (let [deps (try (slurp "deps.json")
                   (catch Exception e
                     (println (.getMessage e))))]
@@ -59,49 +77,49 @@
 (defn- check-module-of-type-is-known [module type]
   (when-let [res (not-empty
                   (filter #(and (= module (:name %)) (= type (:type %)))
-                          @deps-init))]
+                          @deps))]
     (when (less-than-x-days-ago 28 (:updated (first res)))
       (first res))))
 
 ;; Module validation
 
-(defn- get-valid-npm [module]
+(defn- get-valid-npm [{:keys [name]}]
   (or
-   false ;; (check-module-of-type-is-known module "npm")
+   (check-module-of-type-is-known name "npm")
    (let [registry-url-fmt "https://registry.npmjs.org/-/v1/search?text=%s&size=1"]
-     (when-let [res (try (curl/get (format registry-url-fmt module))
+     (when-let [res (try (curl/get (format registry-url-fmt name))
                          (catch Exception _ nil))]
        (when (= (:status res) 200)
          (let [{:keys [description links]}
                (-> (try (json/parse-string (:body res) true)
                         (catch Exception _ nil))
                    :objects first :package)]
-           {:name        module
+           {:name        name
             :type        "npm"
             :updated     (str (t/instant))
             :description description
             :link        (:npm links)}))))))
 
-(defn- get-valid-pypi [module]
+(defn- get-valid-pypi [{:keys [name]}]
   (or
-   (check-module-of-type-is-known module "pypi")
+   (check-module-of-type-is-known name "pypi")
    (let [registry-url-fmt "https://pypi.org/pypi/%s/json"]
-     (when-let [res (try (curl/get (format registry-url-fmt module))
+     (when-let [res (try (curl/get (format registry-url-fmt name))
                          (catch Exception _ nil))]
        (when-let [{:keys [info]}
                   (try (json/parse-string (:body res) true)
                        (catch Exception _ nil))]
-         {:name        module
+         {:name        name
           :type        "pypi"
           :updated     (str (t/instant))
           :description (:summary info)
           :link        (:package_url info)})))))
 
 ;; FIXME: Where to get a proper maven artifact description?
-(defn- get-valid-maven [module]
+(defn- get-valid-maven [{:keys [name]}]
   (or
-   (check-module-of-type-is-known module "maven")
-   (let [[groupId artifactId] (drop 1 (re-find #"([^/]+)/([^/]+)" module))
+   (check-module-of-type-is-known name "maven")
+   (let [[groupId artifactId] (drop 1 (re-find #"([^/]+)/([^/]+)" name))
          registry-url-fmt
          "https://search.maven.org/solrsearch/select?q=g:%%22%s%%22+AND+a:%%22%s%%22&core=gav&rows=1&wt=json"
          link-fmt
@@ -115,58 +133,58 @@
                             :docs
                             first
                             :tags))]
-         {:name        module
+         {:name        name
           :type        "maven"
           :updated     (str (t/instant))
           :description (s/join ", " (take 6 tags))
           :link        (format link-fmt groupId artifactId)})))))
 
-(defn- get-valid-clojars [module]
+(defn- get-valid-clojars [{:keys [name]}]
   (or
-   (check-module-of-type-is-known module "clojure")
+   (check-module-of-type-is-known name "clojure")
    (let [registry-url-fmt "https://clojars.org/api/artifacts/%s"]
-     (when-let [res (try (curl/get (format registry-url-fmt module))
+     (when-let [res (try (curl/get (format registry-url-fmt name))
                          (catch Exception _ nil))]
        (when (= (:status res) 200)
-         {:name        module
+         {:name        name
           :type        "clojure"
           :updated     (str (t/instant))
           :description (:description
                         (try (json/parse-string (:body res) true)
                              (catch Exception _ nil)))
-          :link        (str "https://clojars.org/" module)})))))
+          :link        (str "https://clojars.org/" name)})))))
 
-(defn- get-valid-bundler [module]
+(defn- get-valid-bundler [{:keys [name]}]
   (or
-   (check-module-of-type-is-known module "bundler")
+   (check-module-of-type-is-known name "bundler")
    (let [registry-url-fmt "https://rubygems.org/api/v1/gems/%s.json"]
-     (when-let [res (try (curl/get (format registry-url-fmt module))
+     (when-let [res (try (curl/get (format registry-url-fmt name))
                          (catch Exception _ nil))]
        (when (= (:status res) 200)
          (let [{:keys [info project_uri]}
                (try (json/parse-string (:body res) true)
                     (catch Exception _ nil))]
-           {:name        module
+           {:name        name
             :type        "bundler"
             :updated     (str (t/instant))
             :description info
             :link        project_uri}))))))
 
-(defn- get-valid-composer [module]
+(defn- get-valid-composer [{:keys [name]}]
   (or
-   (check-module-of-type-is-known module "composer")
+   (check-module-of-type-is-known name "composer")
    (let [registry-url-fmt "https://packagist.org/packages/%s"]
-     (when-let [res (try (curl/get (str (format registry-url-fmt module) ".json"))
+     (when-let [res (try (curl/get (str (format registry-url-fmt name) ".json"))
                          (catch Exception _ nil))]
        (when (= (:status res) 200)
-         {:name        module
+         {:name        name
           :type        "composer"
           :updated     (str (t/instant))
           :description (-> (try (json/parse-string (:body res) true)
                                 (catch Exception _ nil))
                            :package
                            :description)
-          :link        (format registry-url-fmt module)})))))
+          :link        (format registry-url-fmt name)})))))
 
 ;; Reuse information
 
@@ -196,7 +214,7 @@
   [{:keys [repertoire_url]}]
   (if-let [{:keys [updated] :as entry}
            (walk/keywordize-keys
-            (get reused-init repertoire_url))]
+            (get reused repertoire_url))]
     (if (less-than-x-days-ago 14 updated)
       (hash-map repertoire_url entry)
       (get-reuse repertoire_url))
@@ -209,7 +227,7 @@
     (doseq [r (filter #(= (:plateforme %) "GitHub") @repos)]
       (when-let [info (add-reuse r)]
         (swap! res conj info)))
-    (spit "reuse.json" (json/generate-string @res)))
+    (spit "reuse.json" (json/generate-string (merge reused @res))))
   (println "Added reuse information and stored it in reuse.json"))
 
 ;; Dependencies information
@@ -278,6 +296,12 @@
       (when (seq deps)
         {:maven (into [] deps)}))))
 
+(defn- flatten-deps [m]
+  (let [t (str (t/instant))]
+    (flatten
+     (map
+      (fn [[k v]] (map #(assoc {} :type (name k) :name % :updated t) v)) m))))
+
 (defn- add-dependencies
   "Take a repository map and return the map completed with dependencies."
   [{:keys
@@ -317,45 +341,50 @@
                          "pom.xml"
                          (get-pomxml-deps body))]
               (swap! deps #(merge-with into % reqs))))))
-      (assoc repo :deps @deps :deps_updated (str (t/instant))))))
+      (assoc repo :deps (flatten-deps @deps) :deps_updated (str (t/instant))))))
 
-(defn- deps-map-to-valid-deps-list [[k v]]
-  (let [deps-list (map #(hash-map :type (name k) :name %) v)]
-    (-> (map #(->> (filter (fn [{:keys [name type]}]
-                             (and (= name (:name %))
-                                  (= type (:type %)))) @deps-init)
-                   (map (fn [e] (dissoc e :updated))))
-             deps-list)
-        flatten)))
-
-(defn- spit-repos-deps []
-  (let [res (map
-             (fn [r]
-               (update r :deps
-                       #(into [] (flatten (map deps-map-to-valid-deps-list %)))))
-             @repos)]
-    (reset! repos res)
-    (spit "repos-deps.json" (json/generate-string res))
-    (println "Added repos-deps.json")))
-
-(defn- update-repos-deps-raw
+(defn- update-repos-deps
   "Update @repos with dependencies information."
   []
   (let [res (atom [])]
     (doseq [r @repos]
       (let [deps (add-dependencies r)]
         (swap! res conj deps)))
-    (reset! repos @res))
-  ;; (spit "repos-deps.json" (json/generate-string @repos))
-  ;; (println "Updated repos-deps.json")
-  )
+    (reset! repos @res)))
 
-(defn- update-deps
-  "Update @deps-init with the list of valid dependencies."
+(defn- deps-map-to-valid-deps-list [[k v]]
+  (let [deps-list (map #(hash-map :type (name k) :name %) v)]
+    (-> (map #(->> (filter (fn [{:keys [name type]}]
+                             (and (= name (:name %))
+                                  (= type (:type %)))) @deps)
+                   (map (fn [e] (dissoc e :updated))))
+             deps-list)
+        flatten)))
+
+(defn- spit-repos-deps []
+  (let [res (map (fn [r]
+                   (update
+                    r :deps
+                    #(map
+                      (fn [d]
+                        (first
+                         (filter (fn [{:keys [name type]}]
+                                   (and (= name (:name d))
+                                        (= type (:type d))))
+                                 @deps)))
+                      %)))
+                 @repos)]
+    (reset! repos res)
+    (spit "repos-deps.json" (json/generate-string res))
+    (println "Added or updated repos-deps.json")))
+
+(defn- validate-repos-deps
+  "Update @deps with the list of valid dependencies."
   []
-  (when-let [deps (not-empty (filter not-empty (map :deps @repos)))]
-    (let [d   (reduce #(merge-with into %1 %2) deps)
-          res (atom {})]
+  (when-let [d (-> (group-by :type (flatten (map :deps @repos)))
+                   walk/keywordize-keys
+                   not-empty)]
+    (let [res (atom {})]
       (doseq [[type modules] d]
         (swap! res concat
                (->>
@@ -367,11 +396,7 @@
                   :composer (map get-valid-composer modules)
                   :pypi     (map get-valid-pypi modules))
                 (remove nil?))))
-      (reset! deps-init @res)
-      ;; (spit "deps.json" (json/generate-string @res))
-      )
-    ;; (println "Added deps.json")
-    ))
+      (reset! deps @res))))
 
 (defn- spit-deps-with-repos []
   (let [reps (map #(select-keys % [:deps :repertoire_url]) @repos)
@@ -385,13 +410,17 @@
                                             deps)))
                                  reps))
                     (assoc dep :repos)))
-             @deps-init)]
-    (reset! deps-init deps-reps)
-    (spit "deps.json" (json/generate-string deps-reps))))
+             @deps)]
+    (reset! deps deps-reps)
+    (spit "deps.json" (json/generate-string deps-reps))
+    (println "Added or updated deps.json")))
+
+(defn- get-all-deps [m]
+  (distinct (map #(dissoc % :updated) (flatten (map :deps m)))))
 
 (defn- spit-deps-repos []
   (let [reps0 (group-by (juxt :nom :organisation_nom) @repos)
-        reps  (reduce-kv (fn [m k v] (assoc m k (first (map :deps v))))
+        reps  (reduce-kv (fn [m k v] (assoc m k (get-all-deps v)))
                          {}
                          reps0)]
     (spit "deps-repos.json"
@@ -400,48 +429,47 @@
 
 (defn- spit-deps-orgas []
   (let [orgs1 (group-by (juxt :organisation_nom :plateforme) @repos)
-        orgs0 (reduce-kv (fn [m k v] (assoc m k (flatten (map :deps v))))
+        orgs0 (reduce-kv (fn [m k v] (assoc m k (get-all-deps v)))
                          {}
-                         orgs1)
-        orgs  (reduce-kv
-               (fn [m k v]
-                 (assoc m k (map
-                             #(assoc % :repos
-                                     (:repos
-                                      (first
-                                       (get (group-by (juxt :name :type) @deps-init)
-                                            [(:name %) (:type %)]))))
-                             v)))
-               {}
-               orgs0)]
-    (spit "deps-orgas.json" (json/generate-string orgs))
+                         orgs1)]
+    (spit "deps-orgas.json" (json/generate-string orgs0))
     (println "Added deps-orgas.json")))
 
 (defn- spit-deps-total []
   (spit "deps-total.json"
         (json/generate-string
-         {:deps-total (count @deps-init)}))
+         {:deps-total (count @deps)}))
   (println "Added deps-total.json"))
 
 (defn- spit-deps-top []
   (spit "deps-top.json"
         (json/generate-string
-         (->> @deps-init
+         (->> @deps
               (sort-by #(count (:repos %)))
               reverse
               (take 100))))
   (println "Added deps-top.json"))
 
 (defn -main []
-  (spit-reuse-info)        ;; reuse.json
-  (update-repos-deps-raw)  ;; update @repos with deps raw
-  (update-deps)            ;; update @deps-init
-  (spit-repos-deps)        ;; repos-deps.json
-  (spit-deps-with-repos)   ;; deps.json
-  (spit-deps-repos)        ;; deps-repos.json
-  (spit-deps-orgas)        ;; deps-orgas.json
-  (spit-deps-total)        ;; deps-total.json
-  (spit-deps-top)          ;; deps-top.json
+  ;; Read reuse.json, update old reuse information, merge the result
+  ;; and spit it to reuse.json.
+  (spit-reuse-info)
+  ;; Update @repos by adding dependencies or updating old ones.
+  (update-repos-deps)
+  ;; Update @deps with validated dependencies.
+  (validate-repos-deps)
+  ;; Update @repos with validated dependencies and spit repos-deps.json.
+  (spit-repos-deps)
+  ;; Associate the repos with @deps and spit deps.json.
+  (spit-deps-with-repos)
+  ;; Spit deps-repos.json
+  (spit-deps-repos)
+  ;; Spit deps-orgas.json
+  (spit-deps-orgas)
+  ;; Spit deps-total.json
+  (spit-deps-total)
+  ;; Spit deps-top.json
+  (spit-deps-top)
   (println "Added all json files"))
 
 ;; (-main)
