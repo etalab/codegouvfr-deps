@@ -141,13 +141,13 @@
 
 (defn- get-valid-clojars [{:keys [name]}]
   (or
-   (check-module-of-type-is-known name "clojure")
+   (check-module-of-type-is-known name "clojars")
    (let [registry-url-fmt "https://clojars.org/api/artifacts/%s"]
      (when-let [res (try (curl/get (format registry-url-fmt name))
                          (catch Exception _ nil))]
        (when (= (:status res) 200)
          {:name        name
-          :type        "clojure"
+          :type        "clojars"
           :updated     (str (t/instant))
           :description (:description
                         (try (json/parse-string (:body res) true)
