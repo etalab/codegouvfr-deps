@@ -351,7 +351,8 @@
     (doseq [r @repos]
       (let [deps (add-dependencies r)]
         (swap! res conj deps)))
-    (reset! repos @res)))
+    (reset! repos @res)
+    (println "Updated @repos with dependencies")))
 
 (defn- deps-map-to-valid-deps-list [[k v]]
   (let [deps-list (map #(hash-map :type (name k) :name %) v)]
@@ -400,7 +401,8 @@
                   :pypi     (map get-valid-pypi modules)
                   nil)
                 (remove nil?))))
-      (reset! deps @res))))
+      (reset! deps @res)
+      (println "Updates @deps with valid dependencies"))))
 
 (defn- spit-deps-with-repos []
   (let [reps (map #(select-keys % [:deps :repertoire_url]) @repos)
@@ -415,7 +417,7 @@
                                  reps))
                     (assoc dep :repos)))
              @deps)]
-    (reset! deps deps-reps)
+    (reset! deps (distinct deps-reps))
     (spit "deps.json" (json/generate-string deps-reps))
     (println "Added or updated deps.json")))
 
@@ -429,7 +431,7 @@
                          reps0)]
     (spit "deps-repos.json"
           (json/generate-string reps))
-    (println "Updated deps-repos.json")))
+    (println "Added deps-repos.json")))
 
 (defn- spit-deps-orgas []
   (let [orgs1 (group-by (juxt :organisation_nom :plateforme) @repos)
@@ -473,7 +475,6 @@
   ;; Spit deps-total.json
   (spit-deps-total)
   ;; Spit deps-top.json
-  (spit-deps-top)
-  (println "Added all json files"))
+  (spit-deps-top))
 
 ;; (-main)
