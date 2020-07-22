@@ -69,7 +69,8 @@
   (let [deps (try (slurp "deps.json")
                   (catch Exception e
                     (println (.getMessage e))))]
-    (atom (distinct (json-parse-with-keywords deps)))))
+    (atom (->> (distinct (json-parse-with-keywords deps))
+               (map #(dissoc % :repos))))))
 
 (def grouped-deps
   (atom (group-by (juxt :name :type) @deps)))
@@ -422,7 +423,6 @@
                     (assoc dep :repos)))
              @deps)]
     (reset! deps (distinct deps-reps))
-    (reset! grouped-deps (group-by (juxt :name :type) @deps))
     (spit "deps.json" (json/write-value-as-string deps-reps))
     (println "Added or updated deps.json")))
 
@@ -471,7 +471,7 @@
   (validate-repos-deps)
   ;; Update @repos with valid dependencies and spit repos-deps.json.
   (spit-repos-deps)
-  ;; Associate the repos with @deps and spit deps.json.
+  ;; Update @deps by adding :repos and spit deps.json.
   (spit-deps-with-repos)
   ;; ;; Spit deps-repos.json
   (spit-deps-repos)
