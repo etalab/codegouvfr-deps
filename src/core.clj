@@ -66,7 +66,7 @@
   (let [deps (try (slurp "deps.json")
                   (catch Exception e
                     (println (.getMessage e))))]
-    (atom (json/parse-string deps true))))
+    (atom (distinct (json/parse-string deps true)))))
 
 ;; Utility functions
 
@@ -298,9 +298,10 @@
 
 (defn- flatten-deps [m]
   (let [t (str (t/instant))]
-    (flatten
-     (map
-      (fn [[k v]] (map #(assoc {} :type (name k) :name % :updated t) v)) m))))
+    (-> (fn [[k v]] (map #(assoc {} :type (name k) :name % :updated t) v))
+        (map m)
+        flatten
+        distinct)))
 
 (defn- add-dependencies
   "Take a repository map and return the map completed with dependencies."
