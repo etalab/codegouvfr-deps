@@ -402,7 +402,7 @@
                   nil)
                 (remove nil?))))
       (reset! deps @res)
-      (println "Updates @deps with valid dependencies"))))
+      (println "Updated @deps with valid dependencies"))))
 
 (defn- spit-deps-with-repos []
   (let [reps (map #(select-keys % [:deps :repertoire_url]) @repos)
