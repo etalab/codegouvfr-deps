@@ -341,7 +341,7 @@
                        "https://raw.githubusercontent.com/%s/%s/master/%s"
                        (str baseurl "/%s/%s/-/raw/master/%s"))
           dep-fnames (get dep-files langage)
-          deps       (atom {})]
+          new-deps   (atom {})]
       (doseq [f dep-fnames]
         (when-let [res (try (curl/get (format fmt-str organisation_nom nom f))
                             (catch Exception _ nil))]
@@ -365,8 +365,10 @@
                          (get-projectclj-deps body)
                          "pom.xml"
                          (get-pomxml-deps body))]
-              (swap! deps #(merge-with into % reqs))))))
-      (assoc repo :deps (flatten-deps @deps) :deps_updated (str (t/instant))))))
+              (swap! new-deps #(merge-with into % reqs))))))
+      (assoc repo
+             :deps (flatten-deps @new-deps)
+             :deps_updated (str (t/instant))))))
 
 (defn- update-repos-deps
   "Update @repos with dependencies information."
