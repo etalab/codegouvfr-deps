@@ -390,24 +390,24 @@
 (defn- validate-repos-deps
   "Update @deps with the list of valid dependencies."
   []
-  (when-let [d (-> (group-by :type (->> (map :deps @repos)
-                                        flatten
-                                        (remove nil?)))
-                   walk/keywordize-keys
-                   not-empty)]
+  (when-let [d (->> @repos
+                    (map :deps)
+                    flatten
+                    (group-by :type)
+                    walk/keywordize-keys
+                    not-empty)]
     (let [res (atom {})]
       (doseq [[type modules] d]
-        (swap! res concat
-               (->>
-                (condp = type
-                  :npm      (map get-valid-npm modules)
-                  :bundler  (map get-valid-bundler modules)
-                  :maven    (map get-valid-maven modules)
-                  :clojars  (map get-valid-clojars modules)
-                  :composer (map get-valid-composer modules)
-                  :pypi     (map get-valid-pypi modules)
-                  nil)
-                (remove nil?))))
+        (->> (condp = type
+               :npm      (map get-valid-npm modules)
+               :bundler  (map get-valid-bundler modules)
+               :maven    (map get-valid-maven modules)
+               :clojars  (map get-valid-clojars modules)
+               :composer (map get-valid-composer modules)
+               :pypi     (map get-valid-pypi modules)
+               nil)
+             (remove nil?)
+             (swap! res concat)))
       (reset! deps (distinct @res))
       (reset! grouped-deps (group-by (juxt :name :type) @deps))
       (println "Updated @deps with valid dependencies"))))
