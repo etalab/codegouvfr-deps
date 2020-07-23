@@ -252,11 +252,12 @@
 (defn- spit-reuse-info
   "Generate reuse.json with GitHub reused-by information."
   []
-  (let [res (atom {})]
-    (doseq [r (filter #(= (:plateforme %) "GitHub") @repos)]
-      (when-let [info (add-reuse r)]
-        (swap! res conj info)))
-    (spit "reuse.json" (json/write-value-as-string (merge reused @res))))
+  (->> (filter #(= (:plateforme %) "GitHub") @repos)
+       (map add-reuse)
+       (apply merge)
+       (merge reused)
+       json/write-value-as-string
+       (spit "reuse.json"))
   (println "Added reuse information and stored it in reuse.json"))
 
 ;; Dependencies information
