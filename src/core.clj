@@ -64,7 +64,7 @@
 (def deps (atom nil))
 
 (def deps-init
-  (let [deps (try (slurp "deps.json")
+  (let [deps (try (slurp "deps-all.json")
                   (catch Exception e
                     (println (.getMessage e))))]
     (->> (json-parse-with-keywords deps)
@@ -423,9 +423,14 @@
                                             deps)))
                                  reps))
                     (assoc dep :r)))
-             @deps)]
-    (reset! deps deps-reps)
-    (spit "deps.json" (json/write-value-as-string deps-reps))
+             @deps)
+        deps-reps-limited
+        (->> deps-reps
+             (filter #(> (count (:r %)) 1))
+             distinct)]
+    (reset! deps deps-reps-limited)
+    (spit "deps-all.json" (json/write-value-as-string (distinct deps-reps)))
+    (spit "deps.json" (json/write-value-as-string deps-reps-limited))
     (println "Added or updated deps.json")))
 
 (defn- get-all-deps [m]
