@@ -16,6 +16,16 @@
 
 ;; Definitions
 
+(defn- json-parse-with-keywords [s]
+  (json/read-value s (json/object-mapper {:decode-key-fn keyword})))
+
+(defn- find-first-matching-repo [{:keys [nom organisation_nom]} repos-deps]
+  (-> (get repos-deps [nom organisation_nom])
+      first
+      (select-keys [:deps_updated :deps])))
+
+;; Initialize repos-deps.
+
 (defonce dep-files
   {"PHP"        ["composer.json"]
    "Vue"        ["package.json"]
@@ -29,22 +39,13 @@
 (defonce repos-url
   "https://raw.githubusercontent.com/etalab/data-codes-sources-fr/master/data/repertoires/json/all.json")
 
-(defn- json-parse-with-keywords [s]
-  (json/read-value s (json/object-mapper {:decode-key-fn keyword})))
-
-;; Initialize repos-deps.
 (def repos-deps
   (group-by (juxt :nom :organisation_nom)
             (json-parse-with-keywords
              (try (slurp "repos-deps.json")
                   (catch Exception _ nil)))))
 
-(defn- find-first-matching-repo [{:keys [nom organisation_nom]}]
-  (-> (get repos-deps [nom organisation_nom])
-      first
-      (select-keys [:deps_updated :deps])))
-
-;; Initialize @repos by reusing :deps_updated and :deps from
+;; Initialize repos atom by reusing :deps_updated and :deps from
 ;; repos-deps.json when available, otherwise using repos-raw.json,
 ;; falling back on curl'ing repos-url if needed.
 (def repos
@@ -55,25 +56,28 @@
                                 (catch Exception e
                                   (println (.getMessage e))))))
                 json-parse-with-keywords)]
-    (atom (map #(merge % (find-first-matching-repo %)) res))))
+    (->> (map #(merge % (find-first-matching-repo % repos-deps)) res)
+         ;; (take 5) ;; DEBUG
+         atom)))
 
-;; Initialize reused.
+;; Initialize deps atom that will store all deps later on.
+(def deps (atom nil))
+
+(def deps-init
+  (let [deps (try (slurp "deps.json")
+                  (catch Exception e
+                    (println (.getMessage e))))]
+    (->> (json-parse-with-keywords deps)
+         (map #(dissoc % :repos)))))
+
+(def grouped-deps
+  (atom (group-by (juxt :name :type) deps-init)))
+
 (def reused
   (when-let [res (try (slurp "reuse.json")
                       (catch Exception e
                         (println (.getMessage e))))]
     (json/read-value res)))
-
-;; Initialize @deps.
-(def deps
-  (let [deps (try (slurp "deps.json")
-                  (catch Exception e
-                    (println (.getMessage e))))]
-    (atom (->> (distinct (json-parse-with-keywords deps))
-               (map #(dissoc % :repos))))))
-
-(def grouped-deps
-  (atom (group-by (juxt :name :type) @deps)))
 
 ;; Utility functions
 
