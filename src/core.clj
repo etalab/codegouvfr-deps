@@ -14,7 +14,7 @@
              [java-time :as t])
   (:gen-class))
 
-;; Definitions
+;; Utility functions
 
 (defn- json-parse-with-keywords [s]
   (json/read-value s (json/object-mapper {:decode-key-fn keyword})))
@@ -57,7 +57,7 @@
                                   (println (.getMessage e))))))
                 json-parse-with-keywords)]
     (->> (map #(merge % (find-first-matching-repo % repos-deps)) res)
-         ;; (take 5) ;; DEBUG
+         ;; (take 40) ;; DEBUG
          atom)))
 
 ;; Initialize deps atom that will store all deps later on.
@@ -79,7 +79,7 @@
                         (println (.getMessage e))))]
     (json/read-value res)))
 
-;; Utility functions
+;; Other utility functions
 
 (defn- less-than-x-days-ago [days date-str]
   (let [x-days-ago (t/minus (t/instant) (t/days days))]
@@ -91,16 +91,14 @@
     (when (less-than-x-days-ago 28 (:updated res)) res)))
 
 (defn- flatten-deps [m]
-  (let [t (str (t/instant))]
-    (-> (fn [[k v]] (map #(assoc {} :type (name k) :name % :updated t) v))
-        (map m)
-        flatten
-        distinct)))
+  (-> (fn [[k v]] (map #(assoc {} :type (name k) :name %) v))
+      (map m)
+      flatten))
 
 (defn- find-first-matching-module [{:keys [name type]}]
   (-> (get @grouped-deps [name type])
       first
-      (dissoc :repos)))
+      (dissoc :repos :updated :description :link)))
 
 ;; Module validation
 
@@ -119,7 +117,6 @@
                      :objects first :package)]
              {:name        name
               :type        "npm"
-              :updated     (str (t/instant))
               :description description
               :link        (:npm links)})))))))
 
@@ -136,7 +133,6 @@
                          (catch Exception _ nil))]
            {:name        name
             :type        "pypi"
-            :updated     (str (t/instant))
             :description (:summary info)
             :link        (:package_url info)}))))))
 
@@ -162,7 +158,6 @@
                               :tags))]
            {:name        name
             :type        "maven"
-            :updated     (str (t/instant))
             :description (s/join ", " (take 6 tags))
             :link        (format link-fmt groupId artifactId)}))))))
 
@@ -177,7 +172,6 @@
          (when (= (:status res) 200)
            {:name        name
             :type        "clojars"
-            :updated     (str (t/instant))
             :description (:description
                           (try (json-parse-with-keywords (:body res))
                                (catch Exception _ nil)))
@@ -197,7 +191,6 @@
                       (catch Exception _ nil))]
              {:name        name
               :type        "bundler"
-              :updated     (str (t/instant))
               :description info
               :link        project_uri})))))))
 
@@ -212,7 +205,6 @@
          (when (= (:status res) 200)
            {:name        name
             :type        "composer"
-            :updated     (str (t/instant))
             :description (-> (try (json-parse-with-keywords (:body res))
                                   (catch Exception _ nil))
                              :package
@@ -400,7 +392,8 @@
                     (group-by :type)
                     walk/keywordize-keys
                     not-empty)]
-    (let [res (atom {})]
+    (let [res       (atom {})
+          timestamp (str (t/instant))]
       (doseq [[type modules] d]
         (->> (condp = type
                :npm      (map get-valid-npm modules)
@@ -411,6 +404,7 @@
                :pypi     (map get-valid-pypi modules)
                nil)
              (remove nil?)
+             (map #(assoc % :updated timestamp))
              (swap! res concat)))
       (reset! deps (distinct @res))
       (reset! grouped-deps (group-by (juxt :name :type) @deps))
@@ -429,12 +423,16 @@
                                  reps))
                     (assoc dep :repos)))
              @deps)]
-    (reset! deps (distinct deps-reps))
+    (reset! deps deps-reps)
     (spit "deps.json" (json/write-value-as-string deps-reps))
     (println "Added or updated deps.json")))
 
 (defn- get-all-deps [m]
-  (distinct (map #(dissoc % :updated) (flatten (map :deps m)))))
+  (->> m
+       (map :deps)
+       flatten
+       (map #(dissoc % :updated :description :link))
+       distinct))
 
 (defn- spit-deps-repos []
   (let [reps0 (group-by (juxt :nom :organisation_nom) @repos)
