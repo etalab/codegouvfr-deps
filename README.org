@@ -1,3 +1,7 @@
+This repository is *archived*.
+
+Dependency checking has moved to [[https://github.com/etalab/codegouvfr-data][codegouvfr-data]], which see.
+
 * Generate codegouvfr dependencies data
 
 "codegouvfr" stands for [[https://code.etalab.gouv.fr]].
